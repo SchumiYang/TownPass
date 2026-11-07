@@ -8,7 +8,6 @@ class PinnedServiceWidgetController extends GetxController {
       if (howGoAdminUrl.isNotEmpty) MyServiceItemId.howGoAdmin,
       MyServiceItemId.locationSearch,
       MyServiceItemId.districtOffice,
-      MyServiceItemId.dashboard,
     ],
   );
 

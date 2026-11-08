@@ -36,6 +36,75 @@ abstract class TPWebMessageHandler {
   }
 }
 
+/// 持續推送資料給網頁的處理器（例如感測器串流）。
+///
+/// 網頁傳入 `{action: 'start', ...}` 開始、`{action: 'stop'}` 停止，開始後會透過同一個
+/// reply proxy 重複回傳 `{name, data}`。每個 WebView 以 `owner` 區分各自的串流，
+/// WebView 關閉或換頁時由 `TPWebMessageListener.cancelStreams` 統一停止。
+abstract class TPWebMessageStreamHandler extends TPWebMessageHandler {
+  final Map<Object, Future<void> Function()> _cancellers = {};
+
+  /// 開始串流，回傳停止串流用的 callback。
+  Future<Future<void> Function()> start({
+    required Map config,
+    required void Function(Object? data) onData,
+  });
+
+  @override
+  Future<void> handle({
+    required Object? message,
+    required WebUri? sourceOrigin,
+    required bool isMainFrame,
+    required Function(WebMessage replyWebMessage)? onReply,
+  }) {
+    return handleStream(
+      owner: this,
+      message: message,
+      sourceOrigin: sourceOrigin,
+      isMainFrame: isMainFrame,
+      onReply: onReply,
+    );
+  }
+
+  Future<void> handleStream({
+    required Object owner,
+    required Object? message,
+    required WebUri? sourceOrigin,
+    required bool isMainFrame,
+    required Function(WebMessage replyWebMessage)? onReply,
+  }) async {
+    await cancel(owner: owner);
+
+    final Map config = message is Map ? message : const {};
+    if (config['action'] != 'start' || onReply == null) {
+      onReply?.call(replyWebMessage(data: true));
+      return;
+    }
+
+    final Future<void> Function() canceller = await start(
+      config: config,
+      onData: (data) {
+        try {
+          onReply(replyWebMessage(data: data));
+        } catch (error) {
+          // reply proxy 已失效（WebView 已關閉）
+          printError(info: error.toString());
+          cancel(owner: owner);
+        }
+      },
+    );
+
+    // start 等待期間若又收到新的 start，先停掉前一個避免殘留
+    final Future<void> Function()? previous = _cancellers[owner];
+    _cancellers[owner] = canceller;
+    await previous?.call();
+  }
+
+  Future<void> cancel({required Object owner}) async {
+    await _cancellers.remove(owner)?.call();
+  }
+}
+
 class UserinfoWebMessageHandler extends TPWebMessageHandler {
   @override
   String get name => 'userinfo';
@@ -51,6 +120,32 @@ class UserinfoWebMessageHandler extends TPWebMessageHandler {
       data: Get.find<AccountService>().account ?? [],
     ));
   }
+}
+
+/// 性別（好行「找廁所」導向對應性別廁所用）：由身分證／居留證號第 2 碼推得，只回傳性別、不回傳證號。
+/// 回覆 `{ gender: 'male' | 'female' | null }`；未登入或證號無法判斷時為 null。
+class UserGenderMessageHandler extends TPWebMessageHandler {
+  @override
+  String get name => 'user_gender';
+
+  @override
+  Future<void> handle({
+    required Object? message,
+    required WebUri? sourceOrigin,
+    required bool isMainFrame,
+    required onReply,
+  }) async {
+    onReply?.call(replyWebMessage(
+      data: {'gender': genderFromIdNumber(Get.find<AccountService>().account?.idNumber)},
+    ));
+  }
+}
+
+/// 身分證號第 2 碼 1／2、新式居留證號 8／9 分別為男／女；其他格式回傳 null。
+String? genderFromIdNumber(String? idNumber) {
+  final String? id = idNumber?.trim().toUpperCase();
+  if (id == null || !RegExp(r'^[A-Z][1289][0-9]{8}$').hasMatch(id)) return null;
+  return switch (id[1]) { '1' || '8' => 'male', _ => 'female' };
 }
 
 class LaunchMapWebMessageHandler extends TPWebMessageHandler {

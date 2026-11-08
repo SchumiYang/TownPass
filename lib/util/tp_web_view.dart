@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:town_pass/gen/assets.gen.dart';
 import 'package:town_pass/util/tp_app_bar.dart';
@@ -46,9 +47,23 @@ class TPWebView extends StatelessWidget {
 
   final RxBool canGoBack = RxBool(false);
 
+  /// 系統返回（Android 實體/手勢返回鍵）：網頁有上一頁時先在網頁內返回（觸發 `popstate`），
+  /// 沒有上一頁才關閉 WebView。右上角關閉（X）按鈕仍一律直接關閉。
+  Future<void> _onPopInvoked(BuildContext context, bool didPop, Object? result) async {
+    if (didPop) return;
+    final InAppWebViewController? controller = webViewController.value;
+    if (controller != null && await controller.canGoBack()) {
+      await controller.goBack();
+      return;
+    }
+    // 網頁已無上一頁（canGoBack 狀態過時）時，關閉此頁。
+    canGoBack.value = false;
+    if (context.mounted) Navigator.of(context).pop(result);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final Widget scaffold = Scaffold(
       appBar: TPAppBar(
         backgroundColor: TPColors.primary500,
         foregroundColor: TPColors.white,
@@ -95,10 +110,28 @@ class TPWebView extends StatelessWidget {
           };
         },
         onGeolocationPermissionsShowPrompt: (controller, origin) async {
-          // should be deal individually (ask for user agreement)
-          return GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true);
+          // 網頁要求定位時先取得 App 的系統定位權限；若只允許 WebView 而沒有系統權限，
+          // 網頁的 navigator.geolocation 仍會失敗（例如重新安裝後權限被清除）。
+          LocationPermission permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+          }
+          final bool granted =
+              permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+          // 拒絕時不保留，下次網頁要求定位會再詢問。
+          return GeolocationPermissionShowPromptResponse(origin: origin, allow: granted, retain: granted);
         },
         onCloseWindow: (_) => Get.back(),
+        // iOS：網頁有上一頁時 Flutter 的滑動返回會被 PopScope 停用，改由 WKWebView 原生滑動手勢在網頁歷史中返回。
+        initialSettings: InAppWebViewSettings(allowsBackForwardNavigationGestures: true),
+      ),
+    );
+
+    return Obx(
+      () => PopScope<Object?>(
+        canPop: !canGoBack.value,
+        onPopInvokedWithResult: (didPop, result) => _onPopInvoked(context, didPop, result),
+        child: scaffold,
       ),
     );
   }
@@ -252,9 +285,15 @@ class TPInAppWebView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _TPWebMessageStreamScope(
+      builder: (owner) => _buildInAppWebView(owner: owner),
+    );
+  }
+
+  Widget _buildInAppWebView({required Object owner}) {
     return InAppWebView(
       onWebViewCreated: (controller) async {
-        await controller.addWebMessageListener(TPWebMessageListener.webMessageListener());
+        await controller.addWebMessageListener(TPWebMessageListener.webMessageListener(owner: owner));
         onWebViewCreated?.call(controller);
       },
       gestureRecognizers: gestureRecognizers,
@@ -288,7 +327,11 @@ class TPInAppWebView extends StatelessWidget {
       onReceivedHttpError: onReceivedHttpError,
       onLoadResource: onLoadResource,
       onLoadResourceWithCustomScheme: onLoadResourceWithCustomScheme,
-      onLoadStart: onLoadStart,
+      onLoadStart: (controller, url) {
+        // 換頁後舊頁面的串流不再有接收者
+        TPWebMessageListener.cancelStreams(owner: owner);
+        onLoadStart?.call(controller, url);
+      },
       onLoadStop: onLoadStop,
       onLongPressHitTestResult: onLongPressHitTestResult,
       onPrintRequest: onPrintRequest,
@@ -328,6 +371,29 @@ class TPInAppWebView extends StatelessWidget {
       onMicrophoneCaptureStateChanged: onMicrophoneCaptureStateChanged,
     );
   }
+}
+
+/// 提供每個 WebView 專屬的 `owner`，WebView 移除時停止其所有網頁串流（例如感測器）。
+class _TPWebMessageStreamScope extends StatefulWidget {
+  final Widget Function(Object owner) builder;
+
+  const _TPWebMessageStreamScope({required this.builder});
+
+  @override
+  State<_TPWebMessageStreamScope> createState() => _TPWebMessageStreamScopeState();
+}
+
+class _TPWebMessageStreamScopeState extends State<_TPWebMessageStreamScope> {
+  final Object _owner = Object();
+
+  @override
+  void dispose() {
+    TPWebMessageListener.cancelStreams(owner: _owner);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_owner);
 }
 
 String _failedToLoadUrlData({String? url}) {

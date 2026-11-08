@@ -188,7 +188,7 @@ extension MyServiceIdExt on MyServiceItemId {
       MyServiceItemId.howGo => MyServiceItem(
           title: '好行',
           description: '無障礙步行導航：比較最快、平衡、輪椅友善路線，並可進入場館室內導航',
-          icon: Assets.svg.iconMunicipalNavigation.svg(),
+          icon: Assets.svg.iconHowgo.svg(),
           category: MyServiceCategory.explore,
           destinationUrl: howGoUrl,
           forceWebViewTitle: '好行',
@@ -196,7 +196,7 @@ extension MyServiceIdExt on MyServiceItemId {
       MyServiceItemId.howGoAdmin => MyServiceItem(
           title: '好行管理',
           description: '場館室內導航管理：平面圖、POI、場勘建圖、定位驗證',
-          icon: Assets.svg.iconMunicipalNavigation.svg(),
+          icon: Assets.svg.iconHowgoAdmin.svg(),
           category: MyServiceCategory.explore,
           destinationUrl: howGoAdminUrl,
           forceWebViewTitle: '好行管理',

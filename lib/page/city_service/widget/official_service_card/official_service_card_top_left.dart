@@ -16,7 +16,7 @@ class OfficialServiceCardTopLeft extends OfficialServiceCard {
   @override
   Widget layoutBuild(BuildContext context, BoxConstraints constraint) {
     final double cardHeight = constraint.maxWidth / goldenRatio;
-    final double illustrationWidth = constraint.maxWidth * 0.58;
+    final double illustrationWidth = constraint.maxWidth * 0.70;
 
     return Semantics(
       button: true,
@@ -39,8 +39,8 @@ class OfficialServiceCardTopLeft extends OfficialServiceCard {
             fit: StackFit.passthrough,
             children: [
               Positioned(
-                right: 6.0,
-                bottom: 8.0,
+                right: 4.0,
+                bottom: 6.0,
                 width: illustrationWidth,
                 child: Assets.image.howgoCard.image(
                   fit: BoxFit.contain,

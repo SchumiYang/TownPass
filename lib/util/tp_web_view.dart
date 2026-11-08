@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:town_pass/gen/assets.gen.dart';
 import 'package:town_pass/util/tp_app_bar.dart';
@@ -109,8 +110,16 @@ class TPWebView extends StatelessWidget {
           };
         },
         onGeolocationPermissionsShowPrompt: (controller, origin) async {
-          // should be deal individually (ask for user agreement)
-          return GeolocationPermissionShowPromptResponse(origin: origin, allow: true, retain: true);
+          // 網頁要求定位時先取得 App 的系統定位權限；若只允許 WebView 而沒有系統權限，
+          // 網頁的 navigator.geolocation 仍會失敗（例如重新安裝後權限被清除）。
+          LocationPermission permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+          }
+          final bool granted =
+              permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+          // 拒絕時不保留，下次網頁要求定位會再詢問。
+          return GeolocationPermissionShowPromptResponse(origin: origin, allow: granted, retain: granted);
         },
         onCloseWindow: (_) => Get.back(),
         // iOS：網頁有上一頁時 Flutter 的滑動返回會被 PopScope 停用，改由 WKWebView 原生滑動手勢在網頁歷史中返回。
